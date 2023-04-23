@@ -19,35 +19,38 @@ use crate::optimizers::Optimizer;
 type SolutionId = u64;
 
 #[derive(Debug, Clone)]
-struct Candidate<S: Solution> {
+struct Candidate<Buffer, S: Solution<Buffer>> {
     id: SolutionId,
     sol: S,
     front: usize,
     distance: f64,
+    phantom: std::marker::PhantomData<Buffer>
 }
 
 
-pub struct NSGA3Optimizer<'a, S: Solution> {
-    meta: Box<dyn Meta<'a, S> + 'a>,
+pub struct NSGA3Optimizer<'a, Buffer, S: Solution<Buffer>> {
+    meta: Box<dyn Meta<'a, Buffer, S> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
     // hyper_plane: Hyperplane
 }
 
 
-impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
+impl<'a, Buffer, S> Optimizer<Buffer, S> for NSGA3Optimizer<'a, Buffer, S>
     where
-        S: Solution,
+        S: Solution<Buffer>,
 {
     fn name(&self) -> &str {
         "NSGA-III"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(
+        &mut self,
+        eval: &mut Box<dyn Evaluator>,
+        mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<Buffer, S>>,
+        buffer: &mut Buffer
+    ) {
         //STUB
-
-
-
 
         let mut rnd = thread_rng();
 
@@ -65,6 +68,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                     sol,
                     front: 0,
                     distance: 0.0,
+                    phantom: Default::default(),
                 }
             })
             .collect();
@@ -74,7 +78,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         {
             preprocess_vec.push(&mut child.sol);
         }
-        runtime_solutions_processor.new_candidates(preprocess_vec);
+        runtime_solutions_processor.initialize_new_candidates(preprocess_vec);
 
         let mut parent_pop = self.sort(pop);
 
@@ -124,7 +128,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 break;
             }
 
-            let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+            let mut child_pop: Vec<Candidate<Buffer, S>> = Vec::with_capacity(pop_size);
 
             while child_pop.len() < pop_size {
                 let p1 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
@@ -136,15 +140,15 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 let mut c2 = self.tournament(p3, p4);
 
                 if self.odds(crossover_odds) {
-                    c1.sol.crossover(&mut c2.sol);
+                    c1.sol.crossover(buffer, &mut c2.sol);
                 };
 
                 if self.odds(mutation_odds) {
-                    c1.sol.mutate();
+                    c1.sol.mutate(buffer);
                 };
 
                 if self.odds(mutation_odds) {
-                    c2.sol.mutate();
+                    c2.sol.mutate(buffer);
                 };
 
                 c1.id = self.next_id();
@@ -159,7 +163,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
             {
                 preprocess_vec.push(&mut child.sol);
             }
-            runtime_solutions_processor.new_candidates(preprocess_vec);
+            runtime_solutions_processor.initialize_new_candidates(preprocess_vec);
 
             parent_pop.extend(child_pop);
 
@@ -210,12 +214,12 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
     }
 }
 
-impl<'a, S> NSGA3Optimizer<'a, S>
+impl<'a, Buffer, S> NSGA3Optimizer<'a, Buffer, S>
     where
-        S: Solution,
+        S: Solution<Buffer>,
 {
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S>+ 'a) -> Self {
+    pub fn new(meta: impl Meta<'a, Buffer, S>+ 'a) -> Self {
         NSGA3Optimizer {
             meta: Box::new(meta),
             last_id: 0,
@@ -233,7 +237,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
+    fn tournament(&self, p1: Candidate<Buffer, S>, p2: Candidate<Buffer, S>) -> Candidate<Buffer, S> {
         let mut rnd = rand::thread_rng();
 
         if p1.front < p2.front {
@@ -250,7 +254,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn sort(&self, pop: Vec<Candidate<Buffer, S>>) -> Vec<Candidate<Buffer, S>> {
         let mut dominates: HashMap<SolutionId, HashSet<SolutionId>> = HashMap::new();
         let mut dominated_by: HashMap<SolutionId, usize> = HashMap::new();
 
@@ -316,7 +320,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
             fronts.push(new_front);
         }
 
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(fronts.len());
+        let mut flat_fronts: Vec<Candidate<Buffer, S>> = Vec::with_capacity(fronts.len());
         for (fidx, f) in fronts.into_iter().enumerate() {
             for id in f {
                 let sol = sols.remove(&id).unwrap();
@@ -326,6 +330,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
                     sol,
                     front: fidx,
                     distance: 0.0,
+                    phantom: Default::default(),
                 });
             }
         }
@@ -345,7 +350,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     }
 
     #[allow(clippy::borrowed_box)]
-    fn value(&self, s: &S, obj: &Box<dyn Objective<S> + 'a>) -> f64 {
+    fn value(&self, s: &S, obj: &Box<dyn Objective<Buffer ,S> + 'a>) -> f64 {
         self.meta
             .constraints()
             .iter()

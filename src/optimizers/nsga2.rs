@@ -13,24 +13,25 @@ use crate::optimizers::Optimizer;
 type SolutionId = u64;
 
 #[derive(Debug, Clone)]
-struct Candidate<S: Solution> {
+struct Candidate<Buffer, S: Solution<Buffer>> {
     id: SolutionId,
     sol: S,
     front: usize,
     distance: f64,
+    phantom: std::marker::PhantomData<Buffer>,
 }
 
 /// NSGA-II optimizer
-pub struct NSGA2Optimizer<'a, S: Solution> {
-    meta: Box<dyn Meta<'a, S> + 'a>,
+pub struct NSGA2Optimizer<'a, Buffer, S: Solution<Buffer>> {
+    meta: Box<dyn Meta<'a, Buffer, S> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
     predefined_solutions: Vec<S>,
 }
 
-impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
+impl<'a, Buffer, S> Optimizer<Buffer, S> for NSGA2Optimizer<'a, Buffer, S>
     where
-        S: Solution,
+        S: Solution<Buffer>,
 {
     fn name(&self) -> &str {
         "NSGA-II"
@@ -41,7 +42,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(
+        &mut self,
+        eval: &mut Box<dyn Evaluator>,
+        mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<Buffer, S>>,
+        buffer: &mut Buffer
+    ) {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -49,7 +55,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
         let mutation_odds = self.meta.mutation_odds();
 
         // Buffer
-        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+        let mut child_pop: Vec<Candidate<Buffer, S>> = Vec::with_capacity(pop_size);
         let mut extended_solutions_buffer = Vec::with_capacity(
             runtime_solutions_processor.extend_iteration_population_buffer_size()
         );
@@ -69,6 +75,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         sol,
                         front: 0,
                         distance: 0.0,
+                        phantom: Default::default(),
                     }
                 })
                 .collect();
@@ -83,11 +90,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         sol: predefined_solution,
                         front: 0,
                         distance: 0.0,
+                        phantom: Default::default(),
                     }
                 );
             }
 
-            runtime_solutions_processor.new_candidates(
+            runtime_solutions_processor.initialize_new_candidates(
                 pop
                     .iter_mut()
                     .map(|candidate| &mut candidate.sol)
@@ -166,7 +174,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             if extended_solutions_buffer.len() > 0
             {
-                runtime_solutions_processor.new_candidates(
+                runtime_solutions_processor.initialize_new_candidates(
                     extended_solutions_buffer
                         .iter_mut()
                         .map(|mut child| child)
@@ -182,6 +190,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         front: 0,
                         distance: 0.0,
                         sol: solution,
+                        phantom: Default::default(),
                     });
                 }
 
@@ -225,7 +234,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 child_pop.push(c2);
             }
 
-            runtime_solutions_processor.new_candidates(
+            runtime_solutions_processor.initialize_new_candidates(
                 child_pop
                     .iter_mut()
                     .map(|child| &mut child.sol)
@@ -255,12 +264,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     }
 }
 
-impl<'a, S> NSGA2Optimizer<'a, S>
+impl<'a, Buffer, S> NSGA2Optimizer<'a, Buffer, S>
     where
-        S: Solution,
+        S: Solution<Buffer>,
 {
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+    pub fn new(meta: impl Meta<'a, Buffer, S> + 'a) -> Self {
         let pop_size = meta.population_size();
 
         NSGA2Optimizer {
@@ -285,7 +294,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
+    fn tournament(&self, p1: Candidate<Buffer, S>, p2: Candidate<Buffer, S>) -> Candidate<Buffer, S> {
         let mut rnd = rand::thread_rng();
 
         if p1.front < p2.front {
@@ -302,14 +311,14 @@ impl<'a, S> NSGA2Optimizer<'a, S>
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn nondominating_sort(&self, pop: &Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn nondominating_sort(&self, pop: &Vec<Candidate<Buffer, S>>) -> Vec<Candidate<Buffer, S>> {
         let objs = pop.iter()
             .map(|p| self.values(&p.sol))
             .collect();
 
         let ens_fronts = ens_nondominated_sorting(&objs);
 
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
+        let mut flat_fronts: Vec<Candidate<Buffer, S>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {
             for index in f {
                 let p = &pop[index];
@@ -320,6 +329,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
                     sol: p.sol.clone(),
                     front: fidx,
                     distance: 0.0,
+                    phantom: Default::default(),
                 });
             }
         }
@@ -387,7 +397,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
     }
 
     #[allow(clippy::borrowed_box)]
-    fn value(&self, s: &S, obj: &Box<dyn Objective<S> + 'a>) -> f64 {
+    fn value(&self, s: &S, obj: &Box<dyn Objective<Buffer, S> + 'a>) -> f64 {
         self.meta
             .constraints()
             .iter()

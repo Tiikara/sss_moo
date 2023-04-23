@@ -7,7 +7,7 @@ use itertools::Itertools;
 use markdown_table::MarkdownTable;
 use plotters::backend::BitMapBackend;
 use plotters::prelude::*;
-use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
+use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionBuffer, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
 use crate::evaluator::{DefaultEvaluator, Evaluator};
 use crate::optimizers::nsga2::NSGA2Optimizer;
 use crate::optimizers::{nsga3_final, nsga3_self_impl, Optimizer};
@@ -27,8 +27,8 @@ use crate::problem::dtlz::dtlz5::Dtlz5;
 use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
 
-fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
-                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
+fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolutionBuffer, ArraySolution>>,
+                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolutionBuffer, ArraySolution>>,
                                    terminate_early_count: usize) -> Vec<(Vec<f64>, ArraySolution)>
 {
     let mut evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(terminate_early_count));
@@ -55,7 +55,7 @@ fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem + Send>, solu
 }
 
 fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
-                                  optimizer: &Box<dyn Optimizer<ArraySolution>>,
+                                  optimizer: &Box<dyn Optimizer<ArraySolutionBuffer, ArraySolution>>,
                                   best_solutions: &Vec<(Vec<f64>, ArraySolution)>,
                                   path: &std::path::Path)
 {
@@ -112,13 +112,13 @@ fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEva
 struct ProblemsSolver
 {
     test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>,
+    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolutionBuffer, ArraySolution>>>,
 }
 
 impl ProblemsSolver
 {
     pub fn new(test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>) -> Self
+               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolutionBuffer, ArraySolution>>>) -> Self
     {
         ProblemsSolver {
             test_problems,
