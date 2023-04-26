@@ -81,10 +81,10 @@ pub trait Meta<'a, S: Solution> {
 }
 
 pub trait SolutionsRuntimeProcessor<S: Solution> {
-    fn new_candidates(&mut self, candidates: Vec<&mut S>);
-    fn iter_solutions(&mut self, candidates: Vec<&mut S>);
+    fn new_solutions(&mut self, solutions: &mut Vec<&mut S>);
+    fn iter_solutions(&mut self, solutions: &mut Vec<&mut S>);
     fn iteration_num(&mut self, num: usize);
     fn needs_early_stop(&mut self) -> bool;
     fn extend_iteration_population_buffer_size(&mut self) -> usize { 1 }
-    fn extend_iteration_population(&mut self, candidates: &Vec<&mut S>, out_candidates: &mut Vec<S>) {}
+    fn extend_iteration_population(&mut self, solutions: &Vec<&mut S>, out_solutions: &mut Vec<S>) {}
 }

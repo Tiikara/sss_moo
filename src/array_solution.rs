@@ -191,14 +191,14 @@ impl SolutionsRuntimeArrayProcessor
 
 impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
 {
-    fn new_candidates(&mut self, candidates: Vec<&mut ArraySolution>) {
+    fn new_solutions(&mut self, candidates: &mut Vec<&mut ArraySolution>) {
         for array_solution in candidates
         {
             array_solution.calc_objectives()
         }
     }
 
-    fn iter_solutions(&mut self, _candidates: Vec<&mut ArraySolution>) {
+    fn iter_solutions(&mut self, _candidates: &mut Vec<&mut ArraySolution>) {
 
     }
 

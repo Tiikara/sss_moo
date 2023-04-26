@@ -87,8 +87,8 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 );
             }
 
-            runtime_solutions_processor.new_candidates(
-                pop
+            runtime_solutions_processor.new_solutions(
+                &mut pop
                     .iter_mut()
                     .map(|candidate| &mut candidate.sol)
                     .collect()
@@ -132,7 +132,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
             //    .take_while(|c| c.front == 0).collect();
 
             runtime_solutions_processor.iter_solutions(
-                parent_pop.iter_mut()
+                &mut parent_pop.iter_mut()
                     .map(|child| &mut child.sol)
                     .collect()
             );
@@ -166,8 +166,8 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             if extended_solutions_buffer.len() > 0
             {
-                runtime_solutions_processor.new_candidates(
-                    extended_solutions_buffer
+                runtime_solutions_processor.new_solutions(
+                    &mut extended_solutions_buffer
                         .iter_mut()
                         .map(|mut child| child)
                         .collect()
@@ -225,8 +225,8 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 child_pop.push(c2);
             }
 
-            runtime_solutions_processor.new_candidates(
-                child_pop
+            runtime_solutions_processor.new_solutions(
+                &mut child_pop
                     .iter_mut()
                     .map(|child| &mut child.sol)
                     .collect()

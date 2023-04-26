@@ -52,9 +52,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         "NSGA-III"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
-        //STUB
-
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         let mut rnd = thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -64,8 +62,11 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         let mut extended_solutions_buffer = Vec::with_capacity(
             runtime_solutions_processor.extend_iteration_population_buffer_size()
         );
+        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+        let mut parent_pop = Vec::with_capacity(pop_size);
+        let mut ref_mut_solutions_buffer = Vec::with_capacity(pop_size);
 
-        let mut pop: Vec<_> = (0..pop_size)
+        (0..pop_size)
             .map(|_| {
                 let id = self.next_id();
                 let sol = self.meta.random_solution();
@@ -78,24 +79,32 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                     niche: 0
                 }
             })
-            .collect();
+            .for_each(|candidate| {
+                parent_pop.push(candidate);
+            });
 
-        let mut preprocess_vec = Vec::with_capacity(pop.len());
-        for child in pop.iter_mut()
+        ref_mut_solutions_buffer.clear();
+        for child in parent_pop.iter_mut()
         {
-            preprocess_vec.push(&mut child.sol);
+            ref_mut_solutions_buffer.push(&mut child.sol);
         }
-        runtime_solutions_processor.new_candidates(preprocess_vec);
+        runtime_solutions_processor.new_solutions(&mut ref_mut_solutions_buffer);
 
-        let mut parent_pop = self.sort(pop);
+        let mut sorted = self.nsga_sort(&parent_pop);
 
-        for iter in 0.. {
+        parent_pop.clear();
+        while let Some(candidate) = sorted.pop()
+        {
+            parent_pop.push(candidate);
+        }
+
+        for iter_num in 0.. {
             if runtime_solutions_processor.needs_early_stop()
             {
                 break;
             }
 
-            runtime_solutions_processor.iteration_num(iter);
+            runtime_solutions_processor.iteration_num(iter_num);
 
             self.best_solutions.clear();
             parent_pop
@@ -104,71 +113,87 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 .for_each(|mut c| {
                     let vals: Vec<f64> = self.values(&c.sol);
 
-                    //self.best_solutions
-                    //    .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
-
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
 
-            let mut preprocess_vec = Vec::with_capacity(parent_pop.len());
+            ref_mut_solutions_buffer.clear();
             for child in parent_pop.iter_mut()
             {
-                preprocess_vec.push(&mut child.sol);
+                ref_mut_solutions_buffer.push(&mut child.sol);
             }
-            runtime_solutions_processor.iter_solutions(preprocess_vec);
+            runtime_solutions_processor.iter_solutions(&mut ref_mut_solutions_buffer);
 
-            if parent_pop
-                .iter()
-                .map(|c| {
-                    self.meta
-                        .objectives()
-                        .iter()
-                        .map(|obj| obj.good_enough(self.value(&c.sol, obj)))
-                        .all(identity)
-                })
-                .any(identity)
+            if eval.can_terminate(iter_num, parent_pop.iter().map(|c| self.values(&c.sol)).collect())
             {
                 break;
             }
 
-            if eval.can_terminate(iter, parent_pop.iter().map(|c| self.values(&c.sol)).collect())
-            {
-                break;
-            }
-
-            let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+            child_pop.clear();
 
             while child_pop.len() < pop_size {
-                let p1 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
-                let p2 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
-                let p3 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
-                let p4 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
+                let p1 = parent_pop.choose(&mut rnd).unwrap();
+                let p2 = parent_pop.choose(&mut rnd).unwrap();
+                let p3 = parent_pop.choose(&mut rnd).unwrap();
+                let p4 = parent_pop.choose(&mut rnd).unwrap();
 
-                let mut c1 = self.tournament(p1, p2);
-                let mut c2 = self.tournament(p3, p4);
+                let c1_number = self.get_winner_number_with_tournament(p1, p2);
+                let c2_number = self.get_winner_number_with_tournament(p3, p4);
+
+                let mut s1 =
+                    if c1_number == 0
+                    {
+                        p1.sol.clone()
+                    }
+                    else
+                    {
+                        p2.sol.clone()
+                    };
+
+                let mut s2 =
+                    if c2_number == 0
+                    {
+                        p3.sol.clone()
+                    }
+                    else
+                    {
+                        p4.sol.clone()
+                    };
 
                 if self.odds(crossover_odds) {
-                    c1.sol.crossover(&mut c2.sol);
+                    s1.crossover(&mut s2);
                 };
 
                 if self.odds(mutation_odds) {
-                    c1.sol.mutate();
+                    s1.mutate();
                 };
 
                 if self.odds(mutation_odds) {
-                    c2.sol.mutate();
+                    s1.mutate();
                 };
 
-                c1.id = self.next_id();
-                c2.id = self.next_id();
+                child_pop.push(Candidate{
+                    id: self.next_id(),
+                    sol: s1,
+                    front: 0,
+                    distance: 0.0,
+                    niche: 0
+                });
 
-                child_pop.push(c1);
-                child_pop.push(c2);
+                child_pop.push(Candidate{
+                    id: self.next_id(),
+                    sol: s2,
+                    front: 0,
+                    distance: 0.0,
+                    niche: 0
+                });
             }
 
-            runtime_solutions_processor.extend_iteration_population(&parent_pop.iter_mut()
-                .map(|child| &mut child.sol)
-                .collect(),
+            ref_mut_solutions_buffer.clear();
+            for child in parent_pop.iter_mut()
+            {
+                ref_mut_solutions_buffer.push(&mut child.sol);
+            }
+            runtime_solutions_processor.extend_iteration_population(&ref_mut_solutions_buffer,
                                                                     &mut extended_solutions_buffer);
 
             while let Some(solution) = extended_solutions_buffer.pop()
@@ -184,25 +209,25 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 });
             }
 
-            let mut preprocess_vec = Vec::with_capacity(child_pop.len());
+            ref_mut_solutions_buffer.clear();
             for child in child_pop.iter_mut()
             {
-                preprocess_vec.push(&mut child.sol);
+                ref_mut_solutions_buffer.push(&mut child.sol);
             }
-            runtime_solutions_processor.new_candidates(preprocess_vec);
+            runtime_solutions_processor.new_solutions(&mut ref_mut_solutions_buffer);
 
-            parent_pop.extend(child_pop);
+            while let Some(candidate) = child_pop.pop()
+            {
+                parent_pop.push(candidate);
+            }
 
-            // parent_pop = selected
-            //     .iter()
-            //     .filter(|&&index| index < parent_pop.len())
-            //     .map(|&index| parent_pop[index].clone())
-            //     .collect()
+            let mut sorted = self.nsga_sort(&parent_pop);
 
-
-            let sorted = self.sort(parent_pop);
-
-            parent_pop = sorted;
+            parent_pop.clear();
+            while let Some(candidate) = sorted.pop()
+            {
+                parent_pop.push(candidate);
+            }
         }
     }
 
@@ -246,20 +271,21 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
+    fn get_winner_number_with_tournament(&self, p1: &Candidate<S>, p2: &Candidate<S>) -> usize {
         let mut rnd = thread_rng();
 
         if p1.front < p2.front {
-            p1
+            0
         } else if p2.front < p1.front {
-            p2
+            1
         } else {
-            vec![p1, p2].remove(rnd.gen_range(0..=1))
+            rnd.gen_range(0..=1)
         }
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&mut self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn nsga_sort(&mut self, pop: &Vec<Candidate<S>>) -> Vec<Candidate<S>>
+    {
         let objs = pop.iter()
             .map(|p| self.values(&p.sol))
             .collect();

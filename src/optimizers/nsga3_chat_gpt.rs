@@ -43,7 +43,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         "NSGA-III"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         //STUB
 
 
@@ -74,7 +74,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         {
             preprocess_vec.push(&mut child.sol);
         }
-        runtime_solutions_processor.new_candidates(preprocess_vec);
+        runtime_solutions_processor.new_solutions(&mut preprocess_vec);
 
         let mut parent_pop = self.sort(pop);
 
@@ -103,7 +103,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
             {
                 preprocess_vec.push(&mut child.sol);
             }
-            runtime_solutions_processor.iter_solutions(preprocess_vec);
+            runtime_solutions_processor.iter_solutions(&mut preprocess_vec);
 
             if parent_pop
                 .iter()
@@ -159,7 +159,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
             {
                 preprocess_vec.push(&mut child.sol);
             }
-            runtime_solutions_processor.new_candidates(preprocess_vec);
+            runtime_solutions_processor.new_solutions(&mut preprocess_vec);
 
             parent_pop.extend(child_pop);
 
