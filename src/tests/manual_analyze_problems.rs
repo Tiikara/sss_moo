@@ -294,7 +294,7 @@ impl ProblemsSolver
             let best_metric = self.test_problems[result.1].1.best_metric();
             let metric = result.2;
 
-            let successfulness = (1.0 - (metric - best_metric) / (std_dev - best_metric)) * 100.0;
+            let successfulness = (1.0 - abs(metric - best_metric) / abs(std_dev - best_metric)) * 100.0;
 
             std_dev_successfulness[result.0 - 1] += (successfulness - mean_successfulness[result.0 - 1]).powi(2);
         }
